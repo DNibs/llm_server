@@ -36,7 +36,9 @@ def chat_fn(history, message):
 # Gradio UI
 with gr.Blocks() as demo:
     gr.Markdown("### 🤖 Local LLM Chatbot via LangChain + LM Studio")
-    chatbot = gr.Chatbot(type='messages')
+    #chatbot = gr.Chatbot(type='messages')
+    #TODO: deprecated, update to line above, but currently gives errors 
+    chatbot = gr.Chatbot()
     state = gr.State([])
 
     with gr.Row():

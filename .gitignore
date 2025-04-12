@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.DS_Store
+*.egg-info/
+dist/
+build/
+wheels/
+
+# Environments
+venv/
+llm_server_venv/
+.env
+ENV/
+
+# PyCharm / IDE specific
+.idea/
+*.iml
+out/
+
+# OS generated files
+Thumbs.db

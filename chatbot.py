@@ -1,27 +1,44 @@
 import os
-from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, START, END, MessagesState
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph.message import add_messages
-from langchain_core.messages import HumanMessage, AIMessage
 import gradio as gr
+from langgraph.graph import StateGraph, START, END, MessagesState
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import ChatOpenAI
+
 
 # Set environment for OpenAI-compatible LM Studio endpoint
 os.environ["OPENAI_API_KEY"] = "lm-studio"  # dummy key; LM Studio doesn't require real auth
 os.environ["OPENAI_API_BASE"] = "http://localhost:1234/v1"  # LM Studio local server
 
 # Set up LangChain model (ChatOpenAI uses OpenAI-compatible endpoints)
-llm = ChatOpenAI(
+LLM = ChatOpenAI(
     temperature=0.7,
-    model_name="gemma-3-27b-it",  # name is arbitrary for local usage
+    model_name="arbitrary_value",  # name is arbitrary for local usage
 )
+
+
+prompt_template = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You are a knowledgeable assistant. Answer all questions to the best of your ability. "
+            "Do not make up facts. If asked for code, do not make up functions, classes, or libraries. "
+            "If you are unsure about something, state that you are unsure.",
+        ),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
+)
+
 
 # Initiate the graph
 workflow = StateGraph(state_schema=MessagesState)
 
 # Define what happens in graph
 def call_model(state: MessagesState):
-    response = llm.invoke(state['messages'])
+    prompt = prompt_template.invoke(state)
+    response = LLM.invoke(prompt)
     return {'messages': response}
 
 # Define the single node in graph
@@ -65,7 +82,7 @@ config_id = {"configurable": {"thread_id": "1"}}
 
 # Gradio UI
 with gr.Blocks() as demo:
-    gr.Markdown("### 🤖 Local LLM Chatbot via LangChain + LM Studio") 
+    gr.Markdown("### 🤖 Local LLM Chatbot via LangGraph + LM Studio") 
     chat_history = gr.Chatbot(type="messages")
     config_state = gr.State(config_id)
     msg = gr.Textbox(placeholder='Type your message here!')

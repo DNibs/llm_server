@@ -24,8 +24,8 @@ prompt_template = ChatPromptTemplate.from_messages(
         (
             "system",
             "You are a knowledgeable assistant. Answer all questions to the best of your ability. "
-            "Do not make up facts. If asked for code, do not make up functions, classes, or libraries. "
-            "If you are unsure about something, state that you are unsure.",
+            "Do not make up facts. If you are unsure about something, state that you are unsure. "
+            "If asked for code, assume it is python. Do not make up functions, classes, or libraries. ",
         ),
         MessagesPlaceholder(variable_name="messages"),
     ]

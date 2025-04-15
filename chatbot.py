@@ -34,21 +34,33 @@ app = workflow.compile(checkpointer=memory)
 
 
 # Define the i/o between the graph and gradio
-def query_response(query, chat_history, config):
-    input_messages = [HumanMessage(query)]
-    output = app.invoke({"messages": input_messages}, config)
-    response = output["messages"][-1].content
-    chat_history.append({"role": "user", "content": query})
-    chat_history.append({"role": "assistant", "content": response})   
-    return chat_history, '' # clears input box
+def query_response(chat_history, query, config):
+    input_messages = [HumanMessage(query)]  # wraps in langgraph format
+    output = app.invoke({"messages": input_messages}, config)  # run graph
+    response = output["messages"][-1].content  # extract LLM response
+    chat_history.append({"role": "user", "content": query})  # wraps in gradio format
+    chat_history.append({"role": "assistant", "content": response})
+
+    # Access metadata from previous message to update chat info
+    model_type = output['messages'][-1].response_metadata["model_name"]
+    thread_id = config["configurable"]["thread_id"]
+    token_usage = output['messages'][-1].response_metadata["token_usage"]
+    prompt_tokens = token_usage["prompt_tokens"]
+    completion_tokens = token_usage["completion_tokens"]
+    total_tokens = token_usage["total_tokens"]
+    chat_info = f"Model: {model_type}, Thread ID: {thread_id}, Prompt tokens: {prompt_tokens}, Completion tokens: {completion_tokens}, Total tokens: {total_tokens}"
+
+    print(output)  # REMOVE FOR PRODUCTION
+    return chat_history, '', chat_info 
 
 
+# Iterates thread id to clear state memory and returns empty values to gradio
 def clear_fn(config):
     config["configurable"]["thread_id"] = str(int(config["configurable"]["thread_id"]) + 1)  # increment thread id
-    return [], '', config  # return updated state
+    return [], '', config, f'Thread ID: {config["configurable"]["thread_id"]}'
 
 
-# Sets unique value for each thread; change to clear history
+# Sets unique value for each thread
 config_id = {"configurable": {"thread_id": "1"}}
 
 # Gradio UI
@@ -56,29 +68,30 @@ with gr.Blocks() as demo:
     gr.Markdown("### 🤖 Local LLM Chatbot via LangChain + LM Studio") 
     chat_history = gr.Chatbot(type="messages")
     config_state = gr.State(config_id)
+    msg = gr.Textbox(placeholder='Type your message here!')
 
     with gr.Row():
-        msg = gr.Textbox('Type your message here!')
         send = gr.Button("Send", scale=1)
+        clear = gr.Button("Clear History", scale=1)
 
-    clear = gr.Button("Clear History and Starts New Thread", scale=1)
+    info = gr.Markdown('Thread ID: 1')
 
     msg.submit(
         query_response, 
-        inputs=[msg, chat_history, config_state], 
-        outputs=[chat_history, msg],
+        inputs=[chat_history, msg, config_state], 
+        outputs=[chat_history, msg, info],
         )
     
     send.click(
         query_response, 
-        inputs=[msg, chat_history, config_state], 
-        outputs=[chat_history, msg],
+        inputs=[chat_history, msg, config_state], 
+        outputs=[chat_history, msg, info],
         )
 
     clear.click(
         clear_fn,
         inputs=[config_state],
-        outputs=[chat_history, msg, config_state],
+        outputs=[chat_history, msg, config_state, info],
         )
 
 

@@ -3,10 +3,18 @@ import gradio as gr
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
+
+SET_PROMPT = "You are a knowledgeable assistant. Answer all questions to the best of your ability. " \
+"Do not make up facts. If you are unsure about something, state that you are unsure. " \
+"If asked for code, assume it is python. Do not make up functions, classes, or libraries. "
+
+MAX_TOKENS = 4096
+
+STREAM_OUTPUT = True
 
 # Set environment for OpenAI-compatible LM Studio endpoint
 os.environ["OPENAI_API_KEY"] = "lm-studio"  # dummy key; LM Studio doesn't require real auth
@@ -23,12 +31,20 @@ prompt_template = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "You are a knowledgeable assistant. Answer all questions to the best of your ability. "
-            "Do not make up facts. If you are unsure about something, state that you are unsure. "
-            "If asked for code, assume it is python. Do not make up functions, classes, or libraries. ",
+            SET_PROMPT,
         ),
         MessagesPlaceholder(variable_name="messages"),
     ]
+)
+
+
+trimmer = trim_messages(
+    max_tokens=MAX_TOKENS,
+    strategy="last",
+    token_counter=LLM,
+    include_system=True,
+    allow_partial=False,
+    start_on="human",
 )
 
 
@@ -37,6 +53,8 @@ workflow = StateGraph(state_schema=MessagesState)
 
 # Define what happens in graph
 def call_model(state: MessagesState):
+    #trimmed_messages = trimmer.invoke(state["messages"])
+    #prompt = prompt_template.invoke({'messages': trimmed_messages})
     prompt = prompt_template.invoke(state)
     response = LLM.invoke(prompt)
     return {'messages': response}
@@ -69,6 +87,28 @@ def query_response(chat_history, query, config):
 
     print(output)  # REMOVE FOR PRODUCTION
     return chat_history, '', chat_info 
+
+
+if STREAM_OUTPUT:
+    # Define the i/o between the graph and gradio - STREAMING 
+    def query_response(chat_history, query, config):
+        input_messages = [HumanMessage(query)]  # wraps in langgraph format
+        chat_history.append({"role": "user", "content": query})
+        response = ''
+        assistant_message = {"role": "assistant", "content": ''}
+        chat_history.append(assistant_message)
+        for chunk, metadata in app.stream(
+            {"messages": input_messages}, 
+            config, 
+            stream_mode='messages',
+            ): 
+            if isinstance(chunk, AIMessage):  # Filter to just model responses
+                response += chunk.content
+                assistant_message["content"] = response
+            
+            print(chunk)  # REMOVE FOR PRODUCTION
+            print(metadata)
+            yield chat_history, '', metadata["thread_id"] 
 
 
 # Iterates thread id to clear state memory and returns empty values to gradio

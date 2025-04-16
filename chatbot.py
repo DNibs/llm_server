@@ -12,13 +12,15 @@ from typing import List, Any
 
 MODEL_NAME = "meta-llama/Meta-Llama-3-1B-Instruct"  # Local model name
 
+# Tokenizer for counting tokens in messages
+#tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained("hf-internal-testing/llama-tokenizer")
+
 SET_PROMPT = "You are a knowledgeable assistant. Answer all questions to the best of your ability. " \
 "Do not make up facts. If you are unsure about something, state that you are unsure. " \
 "If asked for code, assume it is python. Do not make up functions, classes, or libraries. "
 
 MAX_TOKENS = 4096
-
-STREAM_OUTPUT = True
 
 # Set environment for OpenAI-compatible LM Studio endpoint
 os.environ["OPENAI_API_KEY"] = "lm-studio"  # dummy key; LM Studio doesn't require real auth
@@ -43,14 +45,11 @@ prompt_template = ChatPromptTemplate.from_messages(
 )
 
 
-# Tokenizer for counting tokens in messages
-#tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-tokenizer = AutoTokenizer.from_pretrained("hf-internal-testing/llama-tokenizer")
-
-
 # Token counter function compatible with langgraph_core.messages.trim_messages
 def custom_token_counter(messages: List[Any]) -> int:
     total_tokens = 0
+    if not messages:
+        return 0
     for msg in messages:
         total_tokens += len(tokenizer.encode(msg.content, add_special_tokens=False))
     return total_tokens
@@ -67,7 +66,7 @@ trimmer = trim_messages(
 )
 
 
-# Initiate the graph
+# Initiate the graph ===============================================================
 workflow = StateGraph(state_schema=MessagesState)
 
 # Define what happens in graph
@@ -86,59 +85,48 @@ memory = MemorySaver()
 app = workflow.compile(checkpointer=memory)
 
 
-# Define the i/o between the graph and gradio
+# Functions gradio wil execute ======================================================
+# Define the i/o between the graph and gradio - STREAMING 
 def query_response(chat_history, query, config):
     input_messages = [HumanMessage(query)]  # wraps in langgraph format
-    output = app.invoke({"messages": input_messages}, config)  # run graph
-    response = output["messages"][-1].content  # extract LLM response
-    chat_history.append({"role": "user", "content": query})  # wraps in gradio format
-    chat_history.append({"role": "assistant", "content": response})
+    chat_history.append({"role": "user", "content": query})
 
-    # Access metadata from previous message to update chat info
-    model_type = output['messages'][-1].response_metadata["model_name"]
-    thread_id = config["configurable"]["thread_id"]
-    token_usage = output['messages'][-1].response_metadata["token_usage"]
-    prompt_tokens = token_usage["prompt_tokens"]
-    completion_tokens = token_usage["completion_tokens"]
-    total_tokens = token_usage["total_tokens"]
-    chat_info = f"Model: {model_type}, Thread ID: {thread_id}, Prompt tokens: {prompt_tokens}, Completion tokens: {completion_tokens}, Total tokens: {total_tokens}"
+    # Initiate empty variables to be filled in during streaming
+    assistant_message = {"role": "assistant", "content": ''}  
+    chat_history.append(assistant_message)  # streaming will fill in pointer here
+    response = ''  
 
-    print(output)  # REMOVE FOR PRODUCTION
-    return chat_history, '', chat_info 
+    # Get state mem to calculate token count
+    state_values = app.get_state(config).values # Might be empty hence condition below
+    if 'messages' in state_values:
+        token_count = custom_token_counter(state_values['messages']) 
+        token_count += custom_token_counter(input_messages)
+    else:
+        token_count = custom_token_counter(input_messages)
+    
+    # chunks/metadata is streamed per-token output only
+    for chunk, metadata in app.stream(
+        {"messages": input_messages}, 
+        config, 
+        stream_mode='messages',
+        ): 
+        if isinstance(chunk, AIMessage):  # Filter to just model responses
+            response += chunk.content
+            assistant_message["content"] = response
 
-
-if STREAM_OUTPUT:
-    # Define the i/o between the graph and gradio - STREAMING 
-    def query_response(chat_history, query, config):
-        input_messages = [HumanMessage(query)]  # wraps in langgraph format
-        chat_history.append({"role": "user", "content": query})
-        response = ''
-        assistant_message = {"role": "assistant", "content": ''}
-        chat_history.append(assistant_message)
-        for chunk, metadata in app.stream(
-            {"messages": input_messages}, 
-            config, 
-            stream_mode='messages',
-            ): 
-            if isinstance(chunk, AIMessage):  # Filter to just model responses
-                response += chunk.content
-                assistant_message["content"] = response
-            
-            print(chunk)  # REMOVE FOR PRODUCTION
-            print(metadata)
-            yield chat_history, '', metadata["thread_id"] 
+        yield chat_history, '', f'Thread_ID: {metadata["thread_id"]}; Token Count: {token_count} of {MAX_TOKENS}' 
 
 
 # Iterates thread id to clear state memory and returns empty values to gradio
 def clear_fn(config):
-    config["configurable"]["thread_id"] = str(int(config["configurable"]["thread_id"]) + 1)  # increment thread id
+    config["configurable"]["thread_id"] = str(int(config["configurable"]["thread_id"]) + 1) 
     return [], '', config, f'Thread ID: {config["configurable"]["thread_id"]}'
 
 
 # Sets unique value for each thread
 config_id = {"configurable": {"thread_id": "1"}}
 
-# Gradio UI
+# Gradio UI ============================================================================
 with gr.Blocks() as demo:
     gr.Markdown("### 🤖 Local LLM Chatbot via LangGraph + LM Studio") 
     chat_history = gr.Chatbot(type="messages")
@@ -151,6 +139,7 @@ with gr.Blocks() as demo:
 
     info = gr.Markdown('Thread ID: 1')
 
+    # Works on 'enter' key press
     msg.submit(
         query_response, 
         inputs=[chat_history, msg, config_state], 
@@ -170,4 +159,5 @@ with gr.Blocks() as demo:
         )
 
 
+# Launches App; close with ctrl+c ======================================================
 demo.launch(server_name='0.0.0.0', server_port=7860, share=False)

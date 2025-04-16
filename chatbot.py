@@ -6,7 +6,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
+from transformers import AutoTokenizer
+from typing import List, Any
 
+
+MODEL_NAME = "meta-llama/Meta-Llama-3-1B-Instruct"  # Local model name
 
 SET_PROMPT = "You are a knowledgeable assistant. Answer all questions to the best of your ability. " \
 "Do not make up facts. If you are unsure about something, state that you are unsure. " \
@@ -23,10 +27,11 @@ os.environ["OPENAI_API_BASE"] = "http://localhost:1234/v1"  # LM Studio local se
 # Set up LangChain model (ChatOpenAI uses OpenAI-compatible endpoints)
 LLM = ChatOpenAI(
     temperature=0.7,
-    model_name="arbitrary_value",  # name is arbitrary for local usage
+    model_name=MODEL_NAME,  # name is arbitrary for local usage
 )
 
 
+# LangGraph prompt template; setting prompt as system message avoids trimming
 prompt_template = ChatPromptTemplate.from_messages(
     [
         (
@@ -38,10 +43,24 @@ prompt_template = ChatPromptTemplate.from_messages(
 )
 
 
+# Tokenizer for counting tokens in messages
+#tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained("hf-internal-testing/llama-tokenizer")
+
+
+# Token counter function compatible with langgraph_core.messages.trim_messages
+def custom_token_counter(messages: List[Any]) -> int:
+    total_tokens = 0
+    for msg in messages:
+        total_tokens += len(tokenizer.encode(msg.content, add_special_tokens=False))
+    return total_tokens
+
+
+# Avoids going over in context tokens
 trimmer = trim_messages(
     max_tokens=MAX_TOKENS,
     strategy="last",
-    token_counter=LLM,
+    token_counter=custom_token_counter,
     include_system=True,
     allow_partial=False,
     start_on="human",
@@ -53,9 +72,8 @@ workflow = StateGraph(state_schema=MessagesState)
 
 # Define what happens in graph
 def call_model(state: MessagesState):
-    #trimmed_messages = trimmer.invoke(state["messages"])
-    #prompt = prompt_template.invoke({'messages': trimmed_messages})
-    prompt = prompt_template.invoke(state)
+    trimmed_messages = trimmer.invoke(state["messages"])
+    prompt = prompt_template.invoke({'messages': trimmed_messages})
     response = LLM.invoke(prompt)
     return {'messages': response}
 

@@ -8,19 +8,20 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 from transformers import AutoTokenizer
 from typing import List, Any
+from dotenv import load_dotenv
 
 
-MODEL_NAME = "meta-llama/Meta-Llama-3-1B-Instruct"  # Local model name
+load_dotenv()  # Load environment variables from .env file
+
+#MODEL_NAME = "meta-llama/Meta-Llama-3-1B-Instruct"  # Local model name
+MODEL_NAME = os.getenv('MODEL_NAME') # Local model name
+MODEL_TOKENIZER_PATH = os.getenv('MODEL_TOKENIZER_PATH') # Local tokenizer path
+SET_PROMPT = os.getenv('SET_PROMPT') # Local prompt template
+MAX_TOKENS = int(os.getenv('MAX_TOKENS')) # Local max tokens
 
 # Tokenizer for counting tokens in messages
-#tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-tokenizer = AutoTokenizer.from_pretrained("hf-internal-testing/llama-tokenizer")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_TOKENIZER_PATH )
 
-SET_PROMPT = "You are a knowledgeable assistant. Answer all questions to the best of your ability. " \
-"Do not make up facts. If you are unsure about something, state that you are unsure. " \
-"If asked for code, assume it is python. Do not make up functions, classes, or libraries. "
-
-MAX_TOKENS = 4096
 
 # Set environment for OpenAI-compatible LM Studio endpoint
 os.environ["OPENAI_API_KEY"] = "lm-studio"  # dummy key; LM Studio doesn't require real auth

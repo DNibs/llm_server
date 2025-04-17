@@ -6,6 +6,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_google_community import GoogleSearchAPIWrapper
+from langchain.globals import set_verbose, set_debug
 from transformers import AutoTokenizer
 from typing import List, Any
 from dotenv import load_dotenv
@@ -18,9 +21,12 @@ MODEL_NAME = os.getenv('MODEL_NAME') # Local model name
 MODEL_TOKENIZER_PATH = os.getenv('MODEL_TOKENIZER_PATH') # Local tokenizer path
 SET_PROMPT = os.getenv('SET_PROMPT') # Local prompt template
 MAX_TOKENS = int(os.getenv('MAX_TOKENS')) # Local max tokens
+TAVILY_API_KEY = os.getenv('TAVILY_API_KEY') # Local TAVILY API key
+set_verbose(False)
+set_debug(True)
 
 # Tokenizer for counting tokens in messages
-tokenizer = AutoTokenizer.from_pretrained(MODEL_TOKENIZER_PATH )
+tokenizer = AutoTokenizer.from_pretrained(MODEL_TOKENIZER_PATH)
 
 
 # Set environment for OpenAI-compatible LM Studio endpoint
@@ -33,6 +39,12 @@ LLM = ChatOpenAI(
     model_name=MODEL_NAME,  # name is arbitrary for local usage
 )
 
+
+# Set up Tavily search tool for web interactions
+#search = TavilySearchResults(max_results=2)
+#search = GoogleSearchAPIWrapper()
+#tools = [search]
+#LLM_WITH_TOOLS = LLM.bind_tools(tools)
 
 # LangGraph prompt template; setting prompt as system message avoids trimming
 prompt_template = ChatPromptTemplate.from_messages(
@@ -74,6 +86,7 @@ workflow = StateGraph(state_schema=MessagesState)
 def call_model(state: MessagesState):
     trimmed_messages = trimmer.invoke(state["messages"])
     prompt = prompt_template.invoke({'messages': trimmed_messages})
+    #response = LLM_WITH_TOOLS.invoke(prompt)
     response = LLM.invoke(prompt)
     return {'messages': response}
 

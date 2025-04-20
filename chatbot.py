@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, trim_messages
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -80,24 +80,7 @@ trimmer = trim_messages(
     start_on="human",
 )
 
-
-# EXPERIMENTAL!!!!!!! =============================================================
-@tool
-def execute_deez(trap: str):
-    if trap.lower in ['bofa', 'suggem']:
-        return 'DEEZ NUTZZZ!'
-    else:
-        return 'awwwww shucks'
     
-tools = [execute_deez]
-tool_node = ToolNode(tools)
-
-def should_continue(state: MessagesState):
-    messages = state["messages"]
-    last_message = messages[-1]
-    if last_message.tool_calls:
-        return "tools"
-
 # Initiate the graph ===============================================================
 workflow = StateGraph(state_schema=MessagesState)
 
@@ -105,17 +88,14 @@ workflow = StateGraph(state_schema=MessagesState)
 def call_model(state: MessagesState):
     trimmed_messages = trimmer.invoke(state["messages"])
     prompt = prompt_template.invoke({'messages': trimmed_messages})
-    #response = LLM_WITH_TOOLS.invoke(prompt)
     response = LLM.invoke(prompt)
+    #response = LLM.invoke(prompt)
     return {'messages': response}
 
 # Define the single node in graph
 workflow.add_node('model', call_model)
-workflow.add_node('tools', tool_node)
-
 workflow.add_edge(START, 'model')
-workflow.add_conditional_edges('model', should_continue, ['tools'])
-workflow.add_edge('tools', 'model')
+
 
 # Add memory to graph
 memory = MemorySaver()

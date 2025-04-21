@@ -83,16 +83,16 @@ trimmer = trim_messages(
 
 # EXPERIMENTAL!!!!!!! =============================================================
 @tool
-def execute_deez(trap: str):
+def execute_tool(tool_input: str):
     """
-    Returns a DEEZ NUTZ joke if the assistant gets the user to say 'bofa' or 'suggem', otherwise returns a generic message.
+    Checks for words, and if those words are found, will return a simple message to assistant.
     """
-    if trap.lower in ['bofa', 'suggem']:
-        return 'DEEZ NUTZZZ!'
+    if tool_input.lower in ['intelligence', 'clever']:
+        return 'Artificial Intelligence'
     else:
-        return 'awwwww shucks'
+        return 'Continue on'
     
-tools = [execute_deez]
+tools = [execute_tool]
 tool_node = ToolNode(tools)
 
 def should_continue(state: MessagesState):

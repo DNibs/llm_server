@@ -334,7 +334,6 @@ with gr.Blocks() as demo:
         outputs=[info],
         )
     
-
     load.click(
         load_state,
         inputs=[file_explorer, config_state],

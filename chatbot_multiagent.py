@@ -125,10 +125,25 @@ def rehydrate_messages(state):
     return convert(state)
 
 
-def load_state(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
+def convert_messages_openai_to_gradio(state):
+    chat_history = []
+    for message in state["messages"]:
+        if isinstance(message, HumanMessage): 
+            chat_history.append({"role": "user", "content": message.content})
+        if isinstance(message, AIMessage): 
+            chat_history.append({"role": "assistant", "content": message.content})
+    return chat_history
+
+def load_state(filepath_list, config):
+    if filepath_list is None or len(filepath_list) == 0:
+        return
+    config["configurable"]["thread_id"] = str(int(config["configurable"]["thread_id"]) + 1) 
+    with open(filepath_list[0], 'r', encoding='utf-8') as f:
         data = json.load(f)
-    return rehydrate_messages(data)
+        new_state = rehydrate_messages(data)[0]
+        app.invoke(new_state, config)  # Rehydrate the state in the graph
+    chat_history = convert_messages_openai_to_gradio(new_state)
+    return chat_history, config
 
 
 # EXPERIMENTAL!!!!!!! =============================================================
@@ -287,8 +302,12 @@ with gr.Blocks() as demo:
         send = gr.Button("Send", scale=1)
         clear = gr.Button("Clear History", scale=1)
         save = gr.Button("Save State", scale=1)
-
+        load = gr.Button("Load State", scale=1)
+    
     info = gr.Markdown('Thread ID: 1')
+    
+    file_explorer = gr.FileExplorer()
+  
 
     # Works on 'enter' key press
     msg.submit(
@@ -314,6 +333,14 @@ with gr.Blocks() as demo:
         inputs=[msg_state, filepath_state],
         outputs=[info],
         )
+    
+
+    load.click(
+        load_state,
+        inputs=[file_explorer, config_state],
+        outputs=[chat_history, config_state],
+        )
+
 
 # Launches App; close with ctrl+c ======================================================
 demo.launch(server_name='0.0.0.0', server_port=7860, share=False)

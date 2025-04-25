@@ -14,16 +14,14 @@ from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain.chains.summarize import load_summarize_chain
-#from langchain_google_community import GoogleSearchAPIWrapper
 from langchain.globals import set_verbose, set_debug
 from transformers import AutoTokenizer
 from typing import List, Any
 
 
-
+# Prepare global variables and environemnt ==================================
+# ===========================================================================================
 load_dotenv()  # Load environment variables from .env file
-
-#MODEL_NAME = "meta-llama/Meta-Llama-3-1B-Instruct"  # Local model name
 MODEL_NAME = os.getenv('MODEL_NAME') # Local model name
 MODEL_TOKENIZER_PATH = os.getenv('MODEL_TOKENIZER_PATH') # Local tokenizer path
 SET_PROMPT = os.getenv('SET_PROMPT') # Local prompt template
@@ -32,9 +30,8 @@ TAVILY_API_KEY = os.getenv('TAVILY_API_KEY') # Local TAVILY API key
 set_verbose(False)
 set_debug(True)
 
-# Tokenizer for counting tokens in messages
+# Tokenizer from file for counting tokens in messages
 tokenizer = AutoTokenizer.from_pretrained(MODEL_TOKENIZER_PATH)
-
 
 # Set environment for OpenAI-compatible LM Studio endpoint
 os.environ["OPENAI_API_KEY"] = "lm-studio"  # dummy key; LM Studio doesn't require real auth
@@ -47,20 +44,18 @@ LLM = ChatOpenAI(
 )
 
 
+# Message and Prompt Functions ===================================================
+# ===========================================================================================
+
 # LangGraph prompt template; setting prompt as system message avoids trimming
-prompt_template = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            SET_PROMPT,
-        ),
-        MessagesPlaceholder(variable_name="messages"),
-    ]
-)
+prompt_template = ChatPromptTemplate.from_messages([
+    ("system", SET_PROMPT),
+    MessagesPlaceholder(variable_name="messages")
+])
 
 
-# Token counter function compatible with langgraph_core.messages.trim_messages
 def custom_token_counter(messages: List[Any]) -> int:
+    """Token counter function compatible with langgraph_core.messages.trim_messages"""
     total_tokens = 0
     if not messages:
         return 0
@@ -80,9 +75,10 @@ trimmer = trim_messages(
 )
 
 
-# Save and load state functions ===================================================
+# Save and load state functions =============================================================
+# ===========================================================================================
 def serialize_state(state):
-    """Recursively convert all LangChain BaseMessage objects to serializable dicts."""
+    """Convert all LangChain BaseMessage objects to serializable dicts."""
     def convert(obj):
         if isinstance(obj, BaseMessage):
             return obj.model_dump(mode="json")  # Ensure JSON-safe format
@@ -100,12 +96,15 @@ def serialize_state(state):
 
 
 def save_state(state, filepath):
+    """Saves chatbot message history to JSON file. serialize_state converts custom classes to json-serializable dicts."""
     serializable_state = serialize_state(state)
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(serializable_state, f, indent=2)
     return f"State saved to {filepath}"
 
+
 def rehydrate_messages(state):
+    """Convert all serializable dicts back to LangChain BaseMessage objects."""
     def convert(item):
         if isinstance(item, dict) and "type" in item and "content" in item:
             if item["type"] == "human":
@@ -126,6 +125,7 @@ def rehydrate_messages(state):
 
 
 def convert_messages_openai_to_gradio(state):
+    """Converts messages from OpenAI BaseMessage format to Gradio chat_history format."""
     chat_history = []
     for message in state["messages"]:
         if isinstance(message, HumanMessage): 
@@ -135,6 +135,7 @@ def convert_messages_openai_to_gradio(state):
     return chat_history
 
 def load_state(filepath_list, config):
+    """Loads json and converts to LangChain BaseMessage objects for chatbot state. Also passes chat_history to gradio."""
     if filepath_list is None or len(filepath_list) == 0:
         return
     config["configurable"]["thread_id"] = str(int(config["configurable"]["thread_id"]) + 1) 
@@ -146,7 +147,8 @@ def load_state(filepath_list, config):
     return chat_history, config
 
 
-# EXPERIMENTAL!!!!!!! =============================================================
+# Web Search Agent / Tool ===================================================================
+# ===========================================================================================
 custom_map_prompt = PromptTemplate.from_template("""
 You are a research assistant. Summarize the following documents into a single coherent response.
 Please be as verbose, and share specific details from the documents whenever relevant. 
@@ -189,6 +191,7 @@ tools = [websearch]
 tool_node = ToolNode(tools)
 
 def should_continue(state: MessagesState):
+    """Manages the flow of the graph based on tool calls based on last message."""
     messages = state["messages"]
     last_message = messages[-1]
     if last_message.tool_calls:
@@ -197,10 +200,14 @@ def should_continue(state: MessagesState):
         return END
     
 LLM_WITH_TOOLS = LLM.bind_tools(tools)
+
+
 # Initiate the graph ===============================================================
+# ===========================================================================================
 
 # Node 1: Chatbot Agent (calls tools as necessary)
 def chatbot_agent(state: MessagesState):
+    """Prepares messages for and invokes LLM"""
     trimmed_messages = trimmer.invoke(state["messages"])
     prompt = prompt_template.invoke({'messages': trimmed_messages})
     response = LLM_WITH_TOOLS.invoke(prompt)
@@ -245,8 +252,9 @@ app = workflow.compile(checkpointer=memory)
 
 
 # Functions gradio wil execute ======================================================
-# Define the i/o between the graph and gradio - STREAMING 
+# ===========================================================================================
 def query_response(chat_history, query, config):
+    """Defines the i/o between langgraph and gradio with streaming enabled."""
     input_messages = [HumanMessage(query)]  # wraps in langgraph format
     chat_history.append({"role": "user", "content": query})
 
@@ -276,8 +284,8 @@ def query_response(chat_history, query, config):
         yield chat_history, '', f'Thread_ID: {metadata["thread_id"]}; Token Count: {token_count} of {MAX_TOKENS}', app.get_state(config) 
 
 
-# Iterates thread id to clear state memory and returns empty values to gradio
 def clear_fn(config):
+    """Iterates thread id to clear state memory and returns empty values to gradio"""
     config["configurable"]["thread_id"] = str(int(config["configurable"]["thread_id"]) + 1) 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return [], '', config, f'Thread ID: {config["configurable"]["thread_id"]}', timestamp
@@ -289,7 +297,9 @@ timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 os.makedirs('logs', exist_ok=True)
 filepath = os.path.join('logs', f'state_{timestamp}.json')
 
+
 # Gradio UI ============================================================================
+# ===========================================================================================
 with gr.Blocks() as demo:
     gr.Markdown("### 🤖 Local LLM Chatbot via LangGraph + LM Studio") 
     chat_history = gr.Chatbot(type="messages")
@@ -342,4 +352,5 @@ with gr.Blocks() as demo:
 
 
 # Launches App; close with ctrl+c ======================================================
+# ===========================================================================================
 demo.launch(server_name='0.0.0.0', server_port=7860, share=False)

@@ -23,3 +23,6 @@ out/
 
 # OS generated files
 Thumbs.db
+
+# logs
+logs/

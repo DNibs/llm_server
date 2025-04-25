@@ -298,15 +298,15 @@ with gr.Blocks() as demo:
     filepath_state = gr.State(filepath)
     msg = gr.Textbox(placeholder='Type your message here!')
 
+    send = gr.Button("Send")
     with gr.Row():
-        send = gr.Button("Send", scale=1)
         clear = gr.Button("Clear History", scale=1)
         save = gr.Button("Save State", scale=1)
         load = gr.Button("Load State", scale=1)
     
     info = gr.Markdown('Thread ID: 1')
     
-    file_explorer = gr.FileExplorer()
+    file_explorer = gr.FileExplorer(label='Choose log file to load', file_count='single', root_dir='logs')
   
 
     # Works on 'enter' key press

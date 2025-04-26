@@ -138,8 +138,14 @@ def load_state(filepath_list, config):
     """Loads json and converts to LangChain BaseMessage objects for chatbot state. Also passes chat_history to gradio."""
     if filepath_list is None or len(filepath_list) == 0:
         return
+    if isinstance(filepath_list, list):
+        fp = filepath_list[0]
+    elif isinstance(filepath_list, str):
+        fp = filepath_list
+    else:
+        raise ValueError("Invalid input type for filepath_list. Expected list or str.")
     config["configurable"]["thread_id"] = str(int(config["configurable"]["thread_id"]) + 1) 
-    with open(filepath_list[0], 'r', encoding='utf-8') as f:
+    with open(fp, 'r', encoding='utf-8') as f:
         data = json.load(f)
         new_state = rehydrate_messages(data)[0]
         app.invoke(new_state, config)  # Rehydrate the state in the graph
@@ -295,7 +301,7 @@ def clear_fn(config):
 config_id = {"configurable": {"thread_id": "1"}}
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 os.makedirs('logs', exist_ok=True)
-filepath = os.path.join('logs', f'state_{timestamp}.json')
+filepath = os.path.join(os.getcwd(), 'logs', f'state_{timestamp}.json')
 
 
 # Gradio UI ============================================================================

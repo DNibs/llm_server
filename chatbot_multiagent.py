@@ -129,7 +129,12 @@ def rehydrate_messages(state):
             elif item["type"] == "system":
                 return SystemMessage(content=item["content"])
             elif item["type"] == "tool":
-                return ToolMessage(content=item["content"])
+                if "tool_call_id" not in item:
+                    raise ValueError("Missing 'tool_call_id' when trying to load ToolMessage.")
+                return ToolMessage(
+                    content=item["content"],
+                    tool_call_id=item["tool_call_id"]
+                )
         elif isinstance(item, list):
             return [convert(i) for i in item]
         elif isinstance(item, dict):
@@ -148,6 +153,7 @@ def convert_messages_openai_to_gradio(state):
         if isinstance(message, AIMessage): 
             chat_history.append({"role": "assistant", "content": message.content})
     return chat_history
+
 
 def load_state(filepath_list, config):
     """Loads json and converts to LangChain BaseMessage objects for chatbot state. Also passes chat_history to gradio."""

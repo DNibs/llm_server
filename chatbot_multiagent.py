@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 import datetime
+import logging
+import io
 import json
 import gradio as gr
 from langgraph.graph import StateGraph, START, END, MessagesState
@@ -19,6 +21,7 @@ from transformers import AutoTokenizer
 from typing import List, Any
 
 
+
 # Prepare global variables and environemnt ==================================
 # ===========================================================================================
 load_dotenv()  # Load environment variables from .env file
@@ -27,15 +30,27 @@ MODEL_TOKENIZER_PATH = os.getenv('MODEL_TOKENIZER_PATH') # Local tokenizer path
 SET_PROMPT = os.getenv('SET_PROMPT') # Local prompt template
 MAX_TOKENS = int(os.getenv('MAX_TOKENS')) # Local max tokens
 TAVILY_API_KEY = os.getenv('TAVILY_API_KEY') # Local TAVILY API key
-set_verbose(False)
-set_debug(True)
-
-# Tokenizer from file for counting tokens in messages
-tokenizer = AutoTokenizer.from_pretrained(MODEL_TOKENIZER_PATH)
-
-# Set environment for OpenAI-compatible LM Studio endpoint
 os.environ["OPENAI_API_KEY"] = "lm-studio"  # dummy key; LM Studio doesn't require real auth
 os.environ["OPENAI_API_BASE"] = "http://localhost:1234/v1"  # LM Studio local server
+
+
+# Set up logging ========================================================
+# ===========================================================================================
+# creates a stream handler to capture logs in a string buffer
+log_stream = io.StringIO()
+stream_handler = logging.StreamHandler(log_stream)
+stream_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+
+# Set up root logger to capture all logs
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+logger.addHandler(stream_handler)
+
+
+# Set up Tokeinzer and model ========================================================
+# ===========================================================================================
+# Tokenizer from file for counting tokens in messages
+tokenizer = AutoTokenizer.from_pretrained(MODEL_TOKENIZER_PATH)
 
 # Set up model (ChatOpenAI uses OpenAI-compatible endpoints)
 LLM = ChatOpenAI(
@@ -297,6 +312,15 @@ def clear_fn(config):
     return [], '', config, f'Thread ID: {config["configurable"]["thread_id"]}', timestamp
 
 
+def print_logger():
+    """Prints the log stream to log window."""
+    log_contents = log_stream.getvalue()
+    if log_contents:
+        return log_contents
+    else:
+        return "No logs available."
+
+
 # Sets time and unique value for each thread
 config_id = {"configurable": {"thread_id": "1"}}
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -322,8 +346,10 @@ with gr.Blocks() as demo:
     
     info = gr.Markdown('Thread ID: 1')
     
-    file_explorer = gr.FileExplorer(label='Choose log file to load', file_count='single', root_dir='logs')
+    file_explorer = gr.FileExplorer(label='Choose log file to load', file_count='single', root_dir='logs', height=200)
   
+    log_window = gr.Textbox(label='Log Window', interactive=False, lines=10, max_lines=50)
+    print_log = gr.Button('Print Logs')
 
     # Works on 'enter' key press
     msg.submit(
@@ -355,6 +381,12 @@ with gr.Blocks() as demo:
         inputs=[file_explorer, config_state],
         outputs=[chat_history, config_state],
         )
+
+    print_log.click(
+        print_logger,
+        inputs=[],
+        outputs=[log_window],
+    )
 
 
 # Launches App; close with ctrl+c ======================================================
